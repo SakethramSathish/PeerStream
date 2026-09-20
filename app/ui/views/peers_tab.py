@@ -102,7 +102,9 @@ class PeersTab(QWidget):
         self._table_panel.body.addWidget(self._table)
         column.addWidget(self._table_panel, stretch=2)
 
+        self._initialized = False
         self.refresh()
+        self._initialized = True
 
     # ------------------------------------------------------------------ access
 
@@ -129,7 +131,16 @@ class PeersTab(QWidget):
     # ------------------------------------------------------------------ drawing
 
     def refresh(self) -> None:
-        """Redraw both halves from the view model."""
+        """Redraw both halves from the view model.
+
+        Skips all work when the tab is not visible — hidden widgets have
+        nothing to show for the work, and the data will be refreshed in full
+        the moment the user switches back to this tab.
+        The initial call (during __init__) always runs so the canvas is
+        populated before the widget is first shown.
+        """
+        if self._initialized and not self.isVisible():
+            return
         peers = self._vm.peers
         self._canvas.set_our_progress(self._vm.progress)
         self._canvas.set_view_model(peers)

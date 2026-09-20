@@ -161,6 +161,7 @@ class SwarmCanvas(QWidget):
         self._hovered: SwarmNode | None = None
         self._nodes: tuple[SwarmNode, ...] = ()
         self._ticker = Ticker(self._on_tick, interval_ms=1000 // max(1, self._design.chart.max_fps))
+        self._dirty: bool = False  # True when data changed and a repaint is needed
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -173,12 +174,19 @@ class SwarmCanvas(QWidget):
         """Follow this torrent's swarm. Re-places the nodes and repaints."""
         self._view_model = view_model
         self._relayout()
+        self._dirty = True
         self.update()
+        # Restart the decay clock so glows animate on new data.
+        if not self._reduced_motion and self.isVisible():
+            self._ticker.start()
 
     def set_our_progress(self, value: float) -> None:
         """How much of the torrent we hold, ``0.0``-``1.0``, for the centre ring."""
-        self._our_progress = min(1.0, max(0.0, value))
-        self.update()
+        new = min(1.0, max(0.0, value))
+        if new != self._our_progress:
+            self._our_progress = new
+            self._dirty = True
+            self.update()
 
     def set_reduced_motion(self, value: bool) -> None:
         """Motion is a preference, and re-readable at any time.
@@ -478,10 +486,16 @@ class SwarmCanvas(QWidget):
         super().hideEvent(event)
 
     def _on_tick(self) -> None:
-        """Decay the glows. Peers that stopped moving fade, which is the point."""
+        """Decay the glows. Auto-stops when all pulses have fully faded."""
         if self._view_model is None or not self._nodes:
+            self._ticker.stop()  # nothing to animate — save the CPU
             return
-        if all(self._view_model.pulse_for(node.peer.key) <= 0.0 for node in self._nodes):
+        any_active = any(
+            self._view_model.pulse_for(node.peer.key) > 0.005 for node in self._nodes
+        )
+        if not any_active:
+            # All pulses decayed — stop firing until new data arrives.
+            self._ticker.stop()
             return
         self._relayout()
         self.update()

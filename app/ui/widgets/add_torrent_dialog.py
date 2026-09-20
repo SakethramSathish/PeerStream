@@ -56,11 +56,11 @@ class AddTorrentDialog(QDialog):
         parent: Qt parent.
     """
 
-    torrent_accepted = Signal(Torrent, str)
+    torrent_accepted = Signal(object, str)
     """Emitted with the parsed :class:`~app.torrent.Torrent` and the chosen
     save directory as a string."""
 
-    magnet_accepted = Signal(MagnetUri, str)
+    magnet_accepted = Signal(object, str)
     """Emitted with a parsed :class:`~app.torrent.magnet.MagnetUri` and the
     chosen save directory as a string.
 
@@ -269,6 +269,7 @@ class AddTorrentDialog(QDialog):
             self._accept.setEnabled(True)
             return
         self.torrent_accepted.emit(self._torrent, directory)
+        self.accept()
 
     def show_error(self, message: str) -> None:
         """Show an error message and re-enable the accept button."""

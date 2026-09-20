@@ -35,7 +35,24 @@
 
 **PeerStream** is a high-performance, asynchronous BitTorrent client and network visualizer designed to **make the invisible network visible**. Unlike wrapper libraries or partial mock clients, PeerStream implements every protocol layer from scratch: custom Bencode serialization, TCP wire protocols, tracker communication (HTTP/S and UDP), Kademlia DHT node discovery, Peer Exchange (PEX), rarest-first piece scheduling, token-bucket rate limiting, SHA-1 cryptographic integrity checks, and resumable sparse multi-file disk allocation.
 
-PeerStream couples this robust engine with a responsive, modern PySide6 desktop interface built on a decoupled, non-blocking asynchronous event bus.
+## Installation
+
+### Windows
+
+Download the latest PeerStream installer from the [Releases](../../releases/latest) page.
+
+1. Download `PeerStream-Setup-1.0.0.exe`
+2. Run the installer
+3. Follow the setup wizard
+4. Launch PeerStream from the Start Menu or Desktop
+
+No Python installation is required.
+
+## System Requirements
+
+- Windows 10 or later
+- x64 architecture
+- Internet connection for torrent networking
 
 ---
 

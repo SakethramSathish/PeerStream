@@ -241,6 +241,8 @@ class MetricsCollector:
         self._wake = asyncio.Event()
         self._stopping = False
         self._last: MetricsSnapshot | None = None
+        self._cached_indexes: tuple[int, ...] | None = None
+        self._cached_verified_bytes: int = 0
         if self._bus is not None:
             self._listen()
 
@@ -510,7 +512,14 @@ class MetricsCollector:
         indexes = self._verified_indexes()
         if indexes is None:
             return 0
-        return sum(self._torrent.piece_size(index) for index in indexes)
+        
+        if getattr(self, "_cached_indexes", None) is indexes:
+            return self._cached_verified_bytes
+            
+        total = sum(self._torrent.piece_size(index) for index in indexes)
+        self._cached_indexes = indexes
+        self._cached_verified_bytes = total
+        return total
 
     def _verified_indexes(self) -> tuple[int, ...] | None:
         """Indexes of the pieces we hold, or ``None`` if nothing says.
@@ -523,6 +532,8 @@ class MetricsCollector:
         if callable(pieces):
             pieces = pieces()
         if pieces:
+            if isinstance(pieces, tuple):
+                return pieces
             return tuple(int(index) for index in pieces)
         have = getattr(self._upload, "have", None)
         if have is not None and hasattr(have, "has"):

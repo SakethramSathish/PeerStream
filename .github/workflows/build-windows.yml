@@ -1,0 +1,59 @@
+name: Build Windows Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller pillow
+        pip install -r requirements.txt
+        pip install .[ui]
+
+    - name: Generate Icon
+      run: |
+        # Assume logo source is somewhere; if the logo is checked in we use it, 
+        # else we might just use the one we generated and committed to packaging/
+        # Since packaging/PeerStream.ico is checked in, we don't strictly need to generate it.
+        echo "Using bundled packaging/PeerStream.ico"
+
+    - name: Build executable with PyInstaller
+      run: |
+        pyinstaller PeerStream.spec --clean
+
+    - name: Compile Inno Setup Installer
+      uses: minic/inno-setup-action@v1.2.2
+      with:
+        path: packaging\PeerStream.iss
+
+    - name: Generate Checksums
+      shell: pwsh
+      run: |
+        cd release
+        $hash = (Get-FileHash PeerStream-Setup-1.0.0.exe -Algorithm SHA256).Hash
+        "$hash  PeerStream-Setup-1.0.0.exe" | Out-File -Encoding ASCII SHA256SUMS.txt
+        cd ..
+
+    - name: Upload Release Artifacts
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          release/PeerStream-Setup-1.0.0.exe
+          release/SHA256SUMS.txt
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

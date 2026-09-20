@@ -154,6 +154,8 @@ class DownloadManager:
         self._selector = selector or PieceSelector(
             torrent.piece_count, strategy=self._config.piece_strategy
         )
+        self._verified_pieces_set = set(storage.completed_pieces)
+        self._verified_pieces_tuple = tuple(self._verified_pieces_set)
         self._endgame = EndgameTracker(
             enabled=self._config.endgame_enabled, threshold=self._config.endgame_threshold
         )
@@ -223,7 +225,7 @@ class DownloadManager:
     @property
     def verified_pieces(self) -> tuple[int, ...]:
         """Pieces verified and on disk."""
-        return tuple(piece.index for piece in self._pieces if piece.finished)
+        return self._verified_pieces_tuple
 
     @property
     def missing_pieces(self) -> tuple[int, ...]:
@@ -233,7 +235,7 @@ class DownloadManager:
     @property
     def complete(self) -> bool:
         """True when every piece is verified and stored."""
-        return all(piece.finished for piece in self._pieces)
+        return len(self._verified_pieces_set) == len(self._pieces)
 
     @property
     def progress(self) -> float:
@@ -608,6 +610,8 @@ class DownloadManager:
         else:
             self._stats = replace(self._stats, pieces_verified=self._stats.pieces_verified + 1)
             piece.mark_verified()
+            self._verified_pieces_set.add(piece.index)
+            self._verified_pieces_tuple = tuple(self._verified_pieces_set)
             self._emit(
                 EventType.PIECE_VERIFIED,
                 f"piece {piece.index} verified ({piece.size} bytes)",

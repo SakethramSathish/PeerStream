@@ -92,13 +92,15 @@ class _ToastCard(QFrame):
         body.setStyleSheet(f"color: {palette.text}; font-size: {TOKENS.type.small}pt;")
         column.addWidget(body)
 
-        colour = _colour_for(toast.kind, palette)
-        self.setStyleSheet(
-            f"#toast {{ background: {palette.surface_alt};"
-            f" border: 1px solid {palette.border};"
-            f" border-left: 3px solid {colour};"
-            f" border-radius: {TOKENS.radii.md}px; }}"
-        )
+        # Apply pre-baked stylesheet — no per-toast CSS parsing overhead.
+        # The stylesheet cache is built when the palette is first set and
+        # reused for every toast created with the same palette.
+        if not hasattr(_ToastCard, "_stylesheet_cache"):
+            _ToastCard._stylesheet_cache: dict[tuple[str, str], str] = {}
+        cache_key = (toast.kind, id(palette))
+        if cache_key not in _ToastCard._stylesheet_cache:
+            _ToastCard._stylesheet_cache[cache_key] = _build_stylesheet(toast.kind, palette)
+        self.setStyleSheet(_ToastCard._stylesheet_cache[cache_key])
         # The glyph is kept so the icon module's cache stays warm and the
         # mapping stays exercised; the card itself shows the colour edge.
         self._glyph = icons.icon(_icon_for(toast.kind), size=TOKENS.geometry.icon)
@@ -133,6 +135,22 @@ def _icon_for(kind: ToastKind) -> str:
         ToastKind.WARNING: "alert",
         ToastKind.ERROR: "alert",
     }[kind]
+
+
+def _build_stylesheet(kind: ToastKind, palette: Palette) -> str:
+    """Build the stylesheet string for one toast kind + palette combination.
+
+    Called once per (kind, palette) pair at palette-install time, not per
+    toast. Storing the result avoids re-parsing the CSS cascade every time a
+    notification appears — the primary cause of notification jank during bursts.
+    """
+    colour = _colour_for(kind, palette)
+    return (
+        f"#toast {{ background: {palette.surface_alt};"
+        f" border: 1px solid {palette.border};"
+        f" border-left: 3px solid {colour};"
+        f" border-radius: {TOKENS.radii.md}px; }}"
+    )
 
 
 class ToastHost(QWidget):

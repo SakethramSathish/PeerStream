@@ -22,12 +22,14 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from app import __version__
@@ -87,7 +89,19 @@ def _qt_application(argv: Sequence[str]) -> QApplication:
         QApplication.setHighDpiScaleFactorRoundingPolicy(
             Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
         )
-    return QApplication(list(argv))
+    app = QApplication(list(argv))
+    
+    # Load application icon from bundled PyInstaller resources or source directory
+    if hasattr(sys, "_MEIPASS"):
+        icon_path = os.path.join(sys._MEIPASS, "PeerStream.ico")
+    else:
+        # Relative to app/ui/app.py -> ../../packaging/PeerStream.ico
+        icon_path = os.path.join(os.path.dirname(__file__), "..", "..", "packaging", "PeerStream.ico")
+        
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
+        
+    return app
 
 
 def install_theme(qt: QApplication, config: Config) -> tuple[str, object]:
@@ -188,11 +202,11 @@ def run_ui(
         code = 130
     finally:
         handle.window.close()
-        handle.bridge.stop()
         with contextlib.suppress(Exception):
             # The session was built on the engine loop; closing it there is the
             # only thread-safe way to stop its sockets.
             handle.bridge.submit(handle.application.stop()).result(timeout=10)
+        handle.bridge.stop()
     return int(code)
 
 
