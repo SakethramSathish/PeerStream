@@ -1,0 +1,126 @@
+# The three gates, on every push and pull request.
+#
+# They are the same three commands docs/development.md tells a contributor to
+# run, and the main job bootstraps with scripts/setup.sh rather than repeating
+# its dependency list, so CI cannot drift from the documented setup. If the
+# bootstrap script breaks, CI breaks — which is the point.
+#
+# The suite runs offline. Ten tests are marked `network`: they contact public
+# trackers and the live DHT, and they skip unless --network is passed, because a
+# public swarm is not a reproducible fixture and half the peers in one will hang
+# up mid-handshake. A maintainer can run them on demand with the
+# workflow_dispatch input; they are deliberately not part of the gate.
+#
+# There is no `ruff format --check` step. The lint rules and the formatter do not
+# agree about seven pre-existing files, and a gate that fails on arrival teaches
+# people to ignore gates.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: Also run the live-network tests (public trackers, live DHT)
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    name: ruff, mypy, pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # Installs the runtime, dev and UI dependencies plus the Qt system libraries
+      # offscreen rendering needs. Passwordless sudo is available on the hosted
+      # runners, so the apt step inside the script runs rather than being skipped.
+      - name: Bootstrap
+        run: bash scripts/setup.sh
+
+      - name: Lint
+        run: .venv/bin/ruff check app tools tests cli
+
+      - name: Types
+        run: .venv/bin/mypy app tools
+
+      # The coverage floor is a regression net, not a ratchet: the suite sits at
+      # 93%, and 90% is low enough that only a real hole trips it.
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: >
+          .venv/bin/python -m pytest tests -q
+          --cov=app --cov=cli --cov=tools
+          --cov-report=term-missing:skip-covered
+          --cov-fail-under=90
+          ${{ inputs.network && '--network' || '' }}
+
+  package:
+    # A wheel that installs cleanly and imports nothing is the failure this job
+    # exists for: listing three top-level names in [tool.setuptools] ships the
+    # directories and none of their modules, and `pip install` reports success.
+    name: the wheel installs and the command runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build
+        run: |
+          python -m pip install --upgrade build
+          python -m build --wheel
+
+      - name: Install into a clean environment and use it
+        run: |
+          python -m venv /tmp/wheeltest
+          /tmp/wheeltest/bin/pip install --quiet dist/*.whl
+          /tmp/wheeltest/bin/python -m tools.make_test_torrent \
+            --size 1MiB --no-payload --out /tmp/wheeltest/t.torrent
+          /tmp/wheeltest/bin/bittorrent info /tmp/wheeltest/t.torrent
+
+  windows-storage:
+    # The storage layer prefers os.pwrite/os.pread/O_CLOEXEC, none of which exist
+    # on Windows, and falls back when they are absent. tests/storage/
+    # test_portability.py simulates that by deleting the attributes, which is the
+    # closest a Linux runner gets; this job runs the same tests on the platform
+    # the fallback was written for, where the simulation is not needed.
+    #
+    # It runs that file and not the suite: the rest has never been run on
+    # Windows, and a job that is red for unrelated reasons is worse than no job.
+    name: storage IO without pwrite (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+
+      - name: Test the platform-specific path
+        run: python -m pytest tests/storage/test_portability.py -q

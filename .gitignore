@@ -1,0 +1,64 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Testing, Coverage & Linters
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Build & Packaging
+build/
+dist/
+*.egg-info/
+*.egg
+*.whl
+*.tar.gz
+
+# Local Application Data, Downloads & Logs
+Downloads/
+.config/
+*.log
+data/torrents/*
+!data/torrents/.gitkeep
+data/state/*
+!data/state/.gitkeep
+peerstream/data/torrents/*
+!peerstream/data/torrents/.gitkeep
+peerstream/data/state/*
+!peerstream/data/state/.gitkeep
+
+# Local OS & Environment Files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.sudo_as_admin_successful
+.gitconfig
+.env
+.env.local
+.env.*.local
+
+# IDE & Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+~*
+~/
+
+# Scratch & Temporary files
+*.tmp
+*.bak
