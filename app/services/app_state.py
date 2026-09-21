@@ -4,15 +4,15 @@ A Qt widget must never hold a socket, and it must never reach into an engine to
 ask how fast it is going. It reads :class:`AppState` instead. This module is
 the reducer half of that arrangement:
 
-    Engine ──emit──▶ EventBus ──▶ AppState.reduce() ──▶ UI refresh
+    Engine â”€â”€emitâ”€â”€â–¶ EventBus â”€â”€â–¶ AppState.reduce() â”€â”€â–¶ UI refresh
 
 Two kinds of truth live here, and it is worth being precise about which is
 which:
 
-* **Pushed truth** — events. Every event that passes over the bus is reduced
+* **Pushed truth** â€” events. Every event that passes over the bus is reduced
   into the recent-events ring and into per-type counters. This is how the
   protocol timeline stays complete even for things no counter summarises.
-* **Pulled truth** — measurements. Rates, progress, and peer counts are read
+* **Pulled truth** â€” measurements. Rates, progress, and peer counts are read
   from the session *at snapshot time*, because a cached copy of a rate is a
   stale rate, and a stale rate is a lie.
 
@@ -37,12 +37,12 @@ from time import time
 from app.core.event_bus import EventBus, Subscription
 from app.core.events import Event, EventType
 from app.services.session import Session, SessionTotals
-from app.services.torrent_service import TorrentView
+from app.services.torrent_service import TorrentView, TorrentState
 
 logger = logging.getLogger(__name__)
 
 # How many events to keep for the timeline. One torrent at full speed emits a
-# few dozen a second, so this is a couple of minutes of history — enough to
+# few dozen a second, so this is a couple of minutes of history â€” enough to
 # scroll back through a stall and see what happened, small enough to keep.
 DEFAULT_EVENT_CAPACITY: int = 2000
 
@@ -133,7 +133,7 @@ class AppState:
         """Register a listener called with the new revision after a reduction.
 
         Returns:
-            A callable that unregisters the listener — the Qt bridge needs to
+            A callable that unregisters the listener â€” the Qt bridge needs to
             disconnect when a window closes.
         """
         if not callable(handler):
@@ -199,7 +199,23 @@ class AppState:
             uploaded_bytes=0,
         )
         if session is not None:
-            torrents = tuple(service.view() for service in session.services)
+            active_views = [service.view() for service in session.services]
+            for info_hash, (uri, err) in session.pending_magnets.items():
+                active_views.append(TorrentView(
+                    info_hash=info_hash,
+                    name=uri.name or uri.to_string(),
+                    state=TorrentState.ERROR if err else TorrentState.STARTING,
+                    progress=0.0,
+                    total_length=0,
+                    verified_pieces=0,
+                    missing_pieces=0,
+                    piece_count=0,
+                    port=0,
+                    resumed=None,
+                    error=err,
+                    metrics=None
+                ))
+            torrents = tuple(active_views)
             totals = session.totals()
         return AppSnapshot(
             totals=totals,
@@ -211,7 +227,7 @@ class AppState:
         )
 
     def render(self) -> str:
-        """A multi-line text summary — what the CLI and the tests read."""
+        """A multi-line text summary â€” what the CLI and the tests read."""
         snapshot = self.snapshot()
         totals = snapshot.totals
         lines = [
@@ -253,7 +269,7 @@ def _suppress(*errors: type[BaseException], label: str = "") -> Iterator[None]:
     """Swallow (and log) ``errors`` inside a ``with`` block.
 
     A listener that raises must not stop the other listeners from hearing the
-    event — the UI's bugs are not the engine's problem.
+    event â€” the UI's bugs are not the engine's problem.
     """
     try:
         yield

@@ -22,11 +22,13 @@ htmlcov/
 # Build & Packaging
 build/
 dist/
+release/
 *.egg-info/
 *.egg
 *.whl
 *.tar.gz
-
+*.spec
+*.iss
 # Local Application Data, Downloads & Logs
 Downloads/
 .config/

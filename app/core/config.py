@@ -136,8 +136,8 @@ class NetworkConfig:
     """Peer connection settings."""
 
     listen_port: int = DEFAULT_LISTEN_PORT
-    max_peers_per_torrent: int = 40
-    max_peers_total: int = 200
+    max_peers_per_torrent: int = 150
+    max_peers_total: int = 500
     connection_timeout: float = DEFAULT_CONNECTION_TIMEOUT
     handshake_timeout: float = DEFAULT_HANDSHAKE_TIMEOUT
     request_timeout: float = DEFAULT_REQUEST_TIMEOUT
@@ -156,7 +156,7 @@ class DownloadConfig:
     max_download_speed: int = 0  # bytes/second; 0 means unlimited
     piece_strategy: PieceStrategy = PieceStrategy.RAREST_FIRST
     block_size: int = DEFAULT_BLOCK_SIZE
-    max_outstanding_requests: int = 16  # pipelined requests per peer
+    max_outstanding_requests: int = 128  # pipelined requests per peer
     block_timeout: float = DEFAULT_BLOCK_TIMEOUT
     endgame_enabled: bool = True
     endgame_threshold: int = DEFAULT_ENDGAME_THRESHOLD
@@ -175,7 +175,7 @@ class UploadConfig:
     """
 
     max_upload_speed: int = 0  # bytes/second; 0 means unlimited
-    slots: int = DEFAULT_UPLOAD_SLOTS
+    slots: int = 8
     optimistic_unchoke: bool = True
     optimistic_interval: float = DEFAULT_OPTIMISTIC_UNCHOKE_INTERVAL
     choke_interval: float = DEFAULT_CHOKE_INTERVAL

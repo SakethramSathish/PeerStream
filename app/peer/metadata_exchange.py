@@ -630,9 +630,9 @@ async def fetch_metadata_from_any(
     peer_id: bytes | None = None,
     timeout: float = DEFAULT_METADATA_TIMEOUT,
     dht_port: int | None = None,
-    attempts: int = 5,
+    attempts: int = 40,
 ) -> MetadataResult:
-    """Try peers in order until one supplies verified metadata.
+    """Try peers concurrently until one supplies verified metadata.
 
     Peers that do not speak the extension protocol, refuse, or go quiet are
     tried and discarded; the loop only ends in failure when every candidate has
@@ -644,8 +644,10 @@ async def fetch_metadata_from_any(
     """
     if not addresses:
         raise MetadataError("no peers to ask for metadata")
+    
     failures: list[str] = []
-    for host, port in list(addresses)[:attempts]:
+
+    async def try_peer(host: str, port: int) -> MetadataResult:
         try:
             return await fetch_metadata(
                 host, port, info_hash, peer_id=peer_id, timeout=timeout, dht_port=dht_port
@@ -653,6 +655,25 @@ async def fetch_metadata_from_any(
         except (MetadataError, PeerError, OSError, TimeoutError) as exc:
             logger.debug("metadata fetch from %s:%d failed: %s", host, port, exc)
             failures.append(f"{host}:{port}: {exc}")
+            raise
+
+    import asyncio
+    pending = [
+        asyncio.create_task(try_peer(host, port))
+        for host, port in list(addresses)[:attempts]
+    ]
+
+    while pending:
+        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            try:
+                result = task.result()
+                for p in pending:
+                    p.cancel()
+                return result
+            except Exception:
+                pass
+
     raise MetadataError(
         f"no peer supplied metadata for {info_hash.hex()[:12]}; " + "; ".join(failures[:3])
     )

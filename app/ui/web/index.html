@@ -39,6 +39,25 @@
          All three stay inside graphite / emerald / amber — no blue, no purple
          anywhere (focus rings, selection, scrollbars, charts included).
          Focus ring = 2px emerald offset 2.
+ Dialogs  · Remove-confirm: name/size summary + checkbox "Also delete downloaded
+            files from this device" (default OFF, shows exact path + bytes;
+            confirm button relabels to "Remove + delete files" when ticked,
+            burnt-orange danger style).
+          · Close-confirm: "Close / No / Minimize to System Tray". Tray leaves
+            a restore chip; Close stops the StatePump and shows an exited
+            overlay with relaunch. In PySide6 wire these to closeEvent() and
+            QSystemTrayIcon; the custom titlebar (min / max / close) exists so
+            the flows are demonstrable in-browser.
+          · Pieces pane carries a 4-state key (missing / requested /
+            downloading / verified) with live counts + animated swatches;
+            map cells pulse (downloading) and blink (requested) at 60 fps.
+          · Add flow is two-stage: source (dropzone / magnet) → 750 ms parse
+            spinner → metadata dialog. Multi-file torrents show a staggered,
+            selectable contents list (select-all, live "k of n · size"
+            readout, unticked rows dim); single-file torrents show an
+            editable File name field instead. Both carry Save-to + free-space
+            line, "Start downloading when added" and "Skip this dialog next
+            time" checkboxes; step transitions slide horizontally.
 ═══════════════════════════════════════════════════════════════════════════════
 -->
 <!DOCTYPE html>
@@ -101,6 +120,7 @@ html,body{height:100%}
 body{
   background:var(--bg0); color:var(--txt); font-family:var(--sans);
   font-size:14px; line-height:1.45; overflow:hidden;
+  display:flex; flex-direction:column;
   -webkit-font-smoothing:antialiased;
 }
 body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;background:
@@ -120,7 +140,52 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;bac
 .ic.sm{width:15px;height:15px}
 
 /* ── shell ─────────────────────────────────────────────────────────────── */
-.app{position:relative;z-index:1;display:grid;grid-template-columns:236px minmax(0,1fr);height:100vh}
+.frame{position:relative;z-index:1;display:flex;flex-direction:column;height:100%;min-height:0}
+body.win .frame{margin:16px;height:auto;flex:1;border:1px solid var(--line2);border-radius:14px;overflow:hidden;box-shadow:0 30px 90px rgba(0,0,0,.55)}
+body.minimized .frame{display:none}
+.app{position:relative;z-index:1;display:grid;grid-template-columns:236px minmax(0,1fr);flex:1;min-height:0}
+.titlebar{display:flex;align-items:center;gap:9px;height:38px;padding:0 6px 0 14px;background:var(--bg1);border-bottom:1px solid var(--line);flex:none}
+.tb-title{font-family:var(--mono);font-size:11.5px;color:var(--fnt);letter-spacing:.02em}
+.winbtns{margin-left:auto;display:flex;gap:2px;padding-right:4px}
+.winbtn{width:40px;height:29px;display:grid;place-items:center;background:none;border:0;color:var(--mut);cursor:pointer;border-radius:8px;transition:.12s var(--ease)}
+.winbtn:hover{background:var(--hover);color:var(--txt)}
+.winbtn.close:hover{background:var(--dn-dim);color:var(--dn)}
+[hidden]{display:none!important}
+.traychip{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;background:var(--elev);border:1px solid var(--line2);border-radius:999px;padding:11px 20px;font:inherit;font-size:12.5px;font-weight:600;color:var(--mut);cursor:pointer;box-shadow:0 16px 44px rgba(0,0,0,.5);animation:rise .3s var(--ease);z-index:80}
+.traychip:hover{color:var(--txt);border-color:var(--em)}
+.exit-overlay{position:fixed;inset:0;z-index:90;background:var(--bg0);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;animation:fade .3s var(--ease)}
+.exit-overlay .mark{width:52px;height:52px;margin-bottom:10px;opacity:.9}
+.exit-overlay h2{font-size:19px;font-weight:750}
+.exit-overlay p{font-size:12.5px;color:var(--fnt);max-width:380px;margin:6px 0 18px}
+.modal.sm{width:470px}
+.rmwarn{font-size:12.5px;color:var(--mut);margin:2px 0 14px}
+.chkrow{display:flex;gap:11px;align-items:flex-start;padding:12px 13px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel2);cursor:pointer;transition:.14s var(--ease)}
+.chkrow:hover{border-color:var(--line2)}
+.chkrow input{position:absolute;opacity:0;width:0;height:0}
+.chk{width:18px;height:18px;flex:none;margin-top:1px;border-radius:6px;border:1.5px solid var(--line2);background:var(--track);position:relative;transition:.15s var(--ease)}
+.chk::after{content:"";position:absolute;left:5px;top:2px;width:4px;height:9px;border:solid var(--grad-tx);border-width:0 2px 2px 0;transform:rotate(42deg) scale(0);transition:.15s var(--ease)}
+.chkrow input:checked+.chk,.ckl input:checked+.chk{background:var(--em);border-color:var(--em);box-shadow:0 0 10px var(--em-glow)}
+.chkrow input:checked+.chk::after,.ckl input:checked+.chk::after{transform:rotate(42deg) scale(1)}
+.chkrow input:focus-visible+.chk,.ckl input:focus-visible+.chk{outline:2px solid var(--em);outline-offset:2px}
+.chktx b{display:block;font-size:13px}
+.chktx .mono{display:block;font-size:10.5px;color:var(--fnt);margin-top:3px;word-break:break-all}
+.btn-danger{background:linear-gradient(180deg,#FB923C,#E56A08);color:#2A1204;box-shadow:0 6px 22px rgba(251,146,60,.26), inset 0 1px 0 rgba(255,255,255,.3)}
+.btn-danger:hover{transform:translateY(-1px);filter:brightness(1.06);box-shadow:0 10px 28px rgba(251,146,60,.34), inset 0 1px 0 rgba(255,255,255,.3)}
+.pkey{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:16px}
+.pkey-item{border:1px solid var(--line);border-radius:var(--r);background:var(--panel2);padding:12px;display:flex;flex-direction:column;gap:7px}
+.psw{background:none;display:flex;gap:3px}
+.psw i{flex:1;border-radius:3px}
+.psw.miss i{background:var(--cell0);box-shadow:inset 0 0 0 1px var(--line)}
+.psw.req i{background:var(--am);animation:cellblink 1.7s infinite}
+.psw.req i:nth-child(2){animation-delay:.3s}.psw.req i:nth-child(4){animation-delay:.6s}
+.psw.dl i{background:var(--celld);animation:cellpulse 1.1s infinite}
+.psw.dl i:nth-child(3){animation-delay:.25s}.psw.dl i:nth-child(5){animation-delay:.5s}
+.psw.ver i{background:var(--cellv)}
+@keyframes cellpulse{0%,100%{opacity:.4}50%{opacity:1}}
+@keyframes cellblink{0%,100%{opacity:.3}50%{opacity:.95}}
+.pkey-item .t{font-size:12px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+.pkey-item .t .mono{font-size:10.5px;color:var(--mut);font-weight:600}
+.pkey-item .d{font-size:10.5px;color:var(--fnt);line-height:1.45}
 .sidebar{display:flex;flex-direction:column;background:linear-gradient(180deg,var(--bg1),var(--bg0));border-right:1px solid var(--line);min-height:0}
 .brand{display:flex;align-items:center;gap:10px;padding:20px 18px 18px}
 .brand .mark{width:30px;height:30px;flex:none;filter:drop-shadow(0 0 10px rgba(16,185,129,.45))}
@@ -368,6 +433,35 @@ input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;bac
 .dz .ic{width:30px;height:30px;color:var(--em);margin-bottom:8px}
 .dz b{display:block;color:var(--txt);font-size:13px;margin-bottom:3px}
 .mfoot{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+.mz2-head h2{font-size:15px;font-weight:750;line-height:1.35;overflow-wrap:anywhere}
+.mz2-meta{display:flex;gap:8px;flex-wrap:wrap;font-family:var(--mono);font-size:10.5px;color:var(--fnt);margin:7px 0 15px}
+.mz2-meta b{color:var(--mut);font-weight:600}
+.mz2-meta .sep{width:3px;height:3px;border-radius:50%;background:var(--line2);align-self:center}
+.fl-top{display:flex;justify-content:space-between;align-items:baseline;margin:0 1px 6px}
+.fl-top .mz2-sel{font-family:var(--mono);font-size:10.5px;color:var(--em);display:inline-block}
+.flist{max-height:212px;overflow-y:auto;border:1px solid var(--line);border-radius:12px;background:var(--bg1);margin-bottom:14px}
+.fl-h{display:grid;grid-template-columns:36px minmax(0,1fr) 92px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel2);z-index:2;border-radius:12px 12px 0 0}
+.fl-row{display:grid;grid-template-columns:36px minmax(0,1fr) 92px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);transition:background .12s var(--ease),opacity .18s var(--ease);animation:rowIn .32s var(--ease) both;cursor:pointer}
+.fl-row:last-child{border-bottom:0}
+.fl-row:hover{background:var(--hover)}
+.fl-row.off{opacity:.42}
+.fl-row .nm{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:8px;min-width:0}
+.fl-row .nm .ic{color:var(--fnt)}
+.fl-row .sz{font-family:var(--mono);font-size:11px;color:var(--mut);text-align:right}
+@keyframes rowIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.ckl{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--mut);cursor:pointer;user-select:none;position:relative}
+.ckl input{position:absolute;opacity:0;width:0;height:0}
+.ckl b{color:var(--txt);font-weight:600}
+.mz2-disk{display:flex;justify-content:space-between;gap:12px;font-family:var(--mono);font-size:10.5px;color:var(--fnt);margin-top:7px}
+#mzStep2 .field{margin-bottom:14px}
+.step-anim{animation:stepIn .3s var(--ease)}
+.step-back{animation:stepBack .3s var(--ease)}
+@keyframes stepIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:none}}
+@keyframes stepBack{from{opacity:0;transform:translateX(-16px)}to{opacity:1;transform:none}}
+.spin{width:13px;height:13px;border:2px solid rgba(4,36,26,.3);border-top-color:#04241A;border-radius:50%;animation:rot .7s linear infinite;display:inline-block}
+@keyframes rot{to{transform:rotate(360deg)}}
+.bump{animation:bump .28s var(--ease)}
+@keyframes bump{0%{transform:scale(1)}40%{transform:scale(1.14)}100%{transform:scale(1)}}
 .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:70px 20px;text-align:center;color:var(--fnt)}
 .empty .ic{width:40px;height:40px;color:var(--line2);margin-bottom:14px}
 .empty h3{color:var(--txt);font-size:16px;font-weight:700;margin-bottom:6px}
@@ -408,8 +502,13 @@ input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;bac
 <symbol id="i-pieces" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="1.6"/><rect x="13" y="4" width="7" height="7" rx="1.6"/><rect x="4" y="13" width="7" height="7" rx="1.6"/><rect x="13" y="13" width="7" height="7" rx="1.6"/></symbol>
 <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2"/><path d="M12 19.3v2.2"/><path d="M2.5 12h2.2"/><path d="M19.3 12h2.2"/><path d="M5.2 5.2l1.6 1.6"/><path d="M17.2 17.2l1.6 1.6"/><path d="M18.8 5.2l-1.6 1.6"/><path d="M6.8 17.2l-1.6 1.6"/></symbol>
 <symbol id="i-amoled" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-min" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 12h12"/></symbol>
+<symbol id="i-max" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+<symbol id="i-restore" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="8" y="8" width="10" height="10" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+<symbol id="i-tray" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17h16"/><path d="M12 4v9"/><path d="M8.5 9.5L12 13l3.5-3.5"/></symbol>
 </defs></svg>
 
+<div class="frame">
 <div class="app">
   <!-- ══ SIDEBAR ══ -->
   <aside class="sidebar">
@@ -543,11 +642,19 @@ input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;bac
             <table class="tbl"><thead><tr><th>endpoint</th><th>client</th><th class="b">down</th><th class="b">up</th><th style="width:150px">progress</th><th class="b">held</th></tr></thead><tbody id="peerRows"></tbody></table></div></div>
           <div class="pane" data-pane="pieces"><div class="card"><div class="card-h"><span class="up">Piece map</span><span class="fnt" style="font-size:11px" id="pieceMeta"></span></div>
             <canvas id="pieceCanvas" height="200"></canvas>
-            <div class="p-legend">
-              <span class="k"><span class="sw" style="background:var(--cell0)"></span>missing <b class="mono" id="lgMiss">0</b></span>
-              <span class="k"><span class="sw" style="background:var(--am)"></span>requested <b class="mono" id="lgReq">0</b></span>
-              <span class="k"><span class="sw" style="background:var(--celld)"></span>downloading <b class="mono" id="lgDl">0</b></span>
-              <span class="k"><span class="sw" style="background:var(--em2)"></span>verified <b class="mono" id="lgVer">0</b></span>
+            <div class="pkey">
+              <div class="pkey-item"><span class="psw miss"><i></i><i></i><i></i><i></i><i></i></span>
+                <span class="t">missing <span class="mono" id="pkMiss">0</span></span>
+                <span class="d">Not requested yet. Rarest-first scheduler picks from these first.</span></div>
+              <div class="pkey-item"><span class="psw req"><i></i><i></i><i></i><i></i><i></i></span>
+                <span class="t">requested <span class="mono" id="pkReq">0</span></span>
+                <span class="d">Asked from a peer, queued in the request pipeline — blinking amber.</span></div>
+              <div class="pkey-item"><span class="psw dl"><i></i><i></i><i></i><i></i><i></i></span>
+                <span class="t">downloading <span class="mono" id="pkDl">0</span></span>
+                <span class="d">16 KiB blocks in flight right now — pulsing bright emerald.</span></div>
+              <div class="pkey-item"><span class="psw ver"><i></i><i></i><i></i><i></i><i></i></span>
+                <span class="t">verified <span class="mono" id="pkVer">0</span></span>
+                <span class="d">SHA-1 hash matched, written to disk and ready to upload.</span></div>
             </div>
             <div class="p-info" id="pieceInfo">Hover the map to inspect a piece.</div>
           </div></div>
@@ -641,29 +748,95 @@ input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;bac
     </main>
   </div>
 </div>
+</div>
+
+<button class="traychip" id="trayChip" hidden><span class="dot"></span><span id="trayTxt">PeerStream minimized — click to restore</span></button>
 
 <div class="toasts" id="toasts"></div>
 
 <!-- ══ ADD TORRENT MODAL ══ -->
 <div class="backdrop" id="modal">
   <div class="modal">
-    <h2>Add torrent</h2><div class="msub">From a .torrent file on disk, or a magnet link.</div>
-    <div class="tabs" style="margin-bottom:14px"><button class="tab on" data-mz="file">.torrent file</button><button class="tab" data-mz="mag">Magnet link</button></div>
-    <div id="mzFile">
-      <div class="dz" id="dropzone"><svg class="ic"><use href="#i-magnet"/></svg><b id="dzName">Drop a .torrent here</b><span style="font-size:11.5px">or click to browse — parsed with the native bencode reader</span></div>
+    <!-- ── step 1 · source ── -->
+    <div id="mzStep1">
+      <h2>Add torrent</h2><div class="msub">From a .torrent file on disk, or a magnet link.</div>
+      <div class="tabs" style="margin-bottom:14px"><button class="tab on" data-mz="file">.torrent file</button><button class="tab" data-mz="mag">Magnet link</button></div>
+      <div id="mzFile">
+        <div class="dz" id="dropzone"><svg class="ic"><use href="#i-magnet"/></svg><b id="dzName">Drop a .torrent here</b><span style="font-size:11.5px">or click to browse — parsed with the native bencode reader</span></div>
+      </div>
+      <div id="mzMag" style="display:none">
+        <input class="input mono" id="magnetInput" placeholder="magnet:?xt=urn:btih:…" autocomplete="off" spellcheck="false">
+        <div class="fnt" style="font-size:11px;margin-top:8px">info-hash, display name and trackers are parsed client-side; metadata is fetched from peers + DHT before the engine touches the swarm.</div>
+      </div>
+      <div class="mfoot"><button class="btn btn-ghost" id="mzCancel">Cancel</button><button class="btn btn-primary" id="mzNext"><span id="mzNextSpin" hidden style="display:inline-flex;align-items:center"><span class="spin"></span></span><span id="mzNextLbl">Parse metadata</span><svg class="ic sm"><use href="#i-chev"/></svg></button></div>
     </div>
-    <div id="mzMag" style="display:none">
-      <input class="input mono" id="magnetInput" placeholder="magnet:?xt=urn:btih:…" autocomplete="off" spellcheck="false">
-      <div class="fnt" style="font-size:11px;margin-top:8px">info-hash, display name and trackers are parsed client-side before the engine touches the network.</div>
+    <!-- ── step 2 · parsed metadata ── -->
+    <div id="mzStep2" hidden>
+      <div class="mz2-head"><h2 id="mz2Name">—</h2><div class="mz2-meta" id="mz2Meta"></div></div>
+      <div id="mz2ListWrap">
+        <div class="fl-top"><span class="up">Contents · select files</span><span class="mz2-sel" id="mzSel"></span></div>
+        <div class="flist">
+          <div class="fl-h"><label class="ckl"><input type="checkbox" id="mzAll" checked><span class="chk"></span></label><span class="up">name</span><span class="up" style="text-align:right">size</span></div>
+          <div id="mz2List"></div>
+        </div>
+      </div>
+      <div id="mz2Single" hidden>
+        <div class="field"><label>File name</label><input class="input mono" id="mz2FileName" spellcheck="false"></div>
+      </div>
+      <div class="field"><label>Save to</label>
+        <div class="dirrow"><input class="input mono" id="mz2Dir" spellcheck="false"><button class="btn btn-ghost" id="mz2Browse" title="Browse" style="padding:9px 12px"><svg class="ic sm"><use href="#i-folder"/></svg></button></div>
+        <div class="mz2-disk"><span id="mz2Size">—</span><span>412.6 GiB free on C:</span></div>
+      </div>
+      <div style="display:flex;gap:22px;flex-wrap:wrap;margin:2px 0 2px">
+        <label class="ckl"><input type="checkbox" id="mzStart" checked><span class="chk"></span><span>Start downloading when torrent is added</span></label>
+        <label class="ckl"><input type="checkbox" id="mzSkip"><span class="chk"></span><span>Skip this dialog next time</span></label>
+      </div>
+      <div class="mfoot"><button class="btn btn-ghost" id="mz2Back">← Back</button><span style="flex:1"></span><button class="btn btn-ghost" id="mz2Cancel">Cancel</button><button class="btn btn-primary" id="mz2Add"><svg class="ic sm"><use href="#i-plus"/></svg><span id="mz2AddLbl">Add torrent</span></button></div>
     </div>
-    <div class="mfoot"><button class="btn btn-ghost" id="mzCancel">Cancel</button><button class="btn btn-primary" id="mzAdd"><svg class="ic sm"><use href="#i-plus"/></svg>Add torrent</button></div>
   </div>
 </div>
 
+<!-- ══ REMOVE-CONFIRM DIALOG ══ -->
+<div class="backdrop" id="rmModal">
+  <div class="modal sm">
+    <h2>Remove torrent?</h2>
+    <div class="msub" id="rmName">—</div>
+    <p class="rmwarn">Peer connections are dropped and the entry leaves the library. This can be undone by re-adding the torrent.</p>
+    <label class="chkrow"><input type="checkbox" id="rmFiles"><span class="chk"></span>
+      <span class="chktx"><b>Also delete downloaded files from this device</b><span class="mono" id="rmPath">—</span></span></label>
+    <div class="mfoot"><button class="btn btn-ghost" id="rmCancel">Cancel</button><button class="btn btn-danger" id="rmOk"><svg class="ic sm"><use href="#i-trash"/></svg><span id="rmOkLbl">Remove</span></button></div>
+  </div>
+</div>
 
-<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+<!-- ══ CLOSE DIALOG ══ -->
+<div class="backdrop" id="exitModal">
+  <div class="modal sm">
+    <h2>Close PeerStream?</h2>
+    <div class="msub" id="exitSub">—</div>
+    <div class="mfoot" style="gap:8px">
+      <button class="btn btn-ghost" id="exitTray"><svg class="ic sm"><use href="#i-tray"/></svg>Minimize to System Tray</button>
+      <span style="flex:1"></span>
+      <button class="btn btn-ghost" id="exitNo">No</button>
+      <button class="btn btn-danger" id="exitClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ EXITED OVERLAY ══ -->
+<div class="exit-overlay" id="exitOverlay" hidden>
+  <svg class="mark" viewBox="0 0 32 32" fill="none">
+    <path d="M16 2.5L29.5 16 16 29.5 2.5 16z" stroke="#34D399" stroke-width="1.6" fill="rgba(16,185,129,.10)"/>
+    <circle cx="16" cy="10.5" r="2.1" fill="#34D399"/><circle cx="10.5" cy="19" r="2.1" fill="#FBBF24"/><circle cx="21.5" cy="19" r="2.1" fill="#34D399"/>
+    <path d="M16 10.5L10.5 19M16 10.5l5.5 8.5M10.5 19h11" stroke="#34D399" stroke-width="1.2" opacity=".75"/>
+  </svg>
+  <h2>PeerStream has exited</h2>
+  <p id="exitInfo">Session state saved — your torrents resume where they left off on next launch.</p>
+  <button class="btn btn-primary" id="ovRelaunch"><svg class="ic sm"><use href="#i-play"/></svg>Relaunch engine</button>
+</div>
+
 <script>
 "use strict";
+
 document.addEventListener("DOMContentLoaded", () => {
     if (typeof QWebChannel !== "undefined") {
         new QWebChannel(qt.webChannelTransport, function(channel) {
@@ -671,7 +844,26 @@ document.addEventListener("DOMContentLoaded", () => {
             window.bridge.stateChanged.connect(window.updateState);
             window.bridge.eventPushed.connect(function(eventStr) {
                 const e = JSON.parse(eventStr);
-                toast(e.sev, e.src, e.msg);
+                if (typeof pushEvent === 'function') pushEvent(e.sev, e.src, e.msg, e.tid);
+                
+                if (e.src === "TORRENT_PARSED") {
+                    try {
+                        const m = JSON.parse(e.msg);
+                        closeSteps();
+                        openStep2(m);
+                    } catch (err) { console.error(err); }
+                } else {
+                  const toast_events = ["torrent_added", "torrent_completed", "torrent_removed", "disk_error", "tracker_failed", "tracker_warning", "system_started"];
+                  if (e.sev === "err" || e.sev === "warn" || toast_events.includes(e.src)) {
+                      if (typeof toast === 'function') {
+                          if (typeof toastsOn === 'function') {
+                              if (toastsOn()) toast(e.sev, e.src, e.msg);
+                          } else {
+                              toast(e.sev, e.src, e.msg);
+                          }
+                      }
+                  }
+                }
             });
             window.bridge.ready();
         });
@@ -695,6 +887,10 @@ window.updateState = function(stateStr) {
          t.dlH.push(t.dl || 0); if (t.dlH.length > HIST) t.dlH.shift();
          t.ulH.push(t.ul || 0); if (t.ulH.length > HIST) t.ulH.shift();
       });
+    }
+    if (s.dht) {
+      Object.assign(state.dht, s.dht);
+      delete s.dht;
     }
     Object.assign(state, s);
     state.torrents.forEach(t => {
@@ -730,7 +926,7 @@ const MiB=1048576, KiB=1024, PSIZE=256*KiB;
 /* ═══ state ═════════════════════════════════════════════════════════════ */
 const HIST=120;
 const state={view:"dash",tab:"ov",selected:null,filter:"",logSev:"all",logQ:"",
-  uptime:0,sDown:0,sUp:0,dlH:[],ulH:[],dhtH:[],events:[],counters:{info:0,ok:0,warn:0,err:0},
+  uptime:0,sDown:0,sUp:0,dlH:new Array(HIST).fill(0),ulH:new Array(HIST).fill(0),dhtH:new Array(HIST).fill(0),events:[],counters:{info:0,ok:0,warn:0,err:0},
   dht:{nodes:0,found:0,buckets:new Array(160).fill(0)},torrents:[],idSeq:1};
 const CLIENTS=["qBittorrent 4.6.6","libtorrent 2.0.9","Transmission 4.0.5","PeerStream 0.1","Deluge 2.1.1","aria2 1.37"];
 const POOL=[["Sintel 4K Open Movie",1.32*1024*MiB,[["sintel-2160p.mp4",1.05*1024*MiB],["sintel-1080p.mp4",412*MiB],["sintel.en.srt",64*KiB],["README.txt",4*KiB]]],
@@ -754,13 +950,7 @@ function mkTorrent(name,size,files,prog,stateName){
   for(let i=0;i<HIST;i++){t.dlH.push(t.state==="downloading"?t.base*R(.6,1.3):0);t.ulH.push(t.state==="seeding"?t.ul*R(.6,1.3):0)}
   return t;
 }
-// state.torrents.push(mkTorrent("Big Buck Bunny",263.64*MiB,[["big-buck-bunny-1080p.mp4",263.6*MiB],["bbb.en.srt",58*KiB]],.043,"downloading"));
-// state.torrents.push(mkTorrent("Ubuntu 24.04.3 Desktop amd64",5.6*1024*MiB,[["ubuntu-24.04.3-desktop-amd64.iso",5.6*1024*MiB]],1,"seeding"));
-// state.torrents.push(mkTorrent("Arch Linux 2026.09.01 x86_64",1.12*1024*MiB,[["archlinux-2026.09.01-x86_64.iso",1.12*1024*MiB]],.62,"downloading"));
-// state.torrents.push(mkTorrent("Sintel 1080p Open Movie",412*MiB,[["sintel-1080p.mp4",412*MiB]],.31,"paused"));
-// mock history
-// mock dht buckets
-state.dht.nodes=state.dht.buckets.reduce((a,b)=>a+b,0); state.dht.found=RI(8,26);
+state.torrents = [];
 
 /* ═══ events ═══════════════════════════════════════════════════════════ */
 function pushEvent(sev,src,msg,tid){
@@ -840,46 +1030,6 @@ const THEMES={
 let THEME_NAME="dark", THEME=THEMES.dark, EM=THEME.em, AM=THEME.am, EMF=THEME.emF, AMF=THEME.amF;
 
 /* ═══ simulation tick (5 Hz, mirrors StatePump) ═════════════════════════ */
-function tick(){
-  state.uptime+=.2; let gd=0,gu=0;
-  state.torrents.forEach(t=>{
-    if(t.state==="downloading"){
-      t.dl=clamp(t.dl+ (Math.random()-.5)*.22*t.base, .18*t.base, 1.7*t.base);
-      t.ul=clamp(t.ul+(Math.random()-.5)*30*KiB, 0, 300*KiB);
-      const bytes=t.dl*.2; t.downloaded+=bytes; t.uploaded+=t.ul*.2; t.frac+=bytes/PSIZE;
-      while(t.frac>=1&&t.have<t.pieces){t.frac-=1;
-        let idx=-1;for(let i=0;i<t.pieces;i++){if(t.ps[i]===2){idx=i;break}}
-        if(idx<0)for(let i=0;i<t.pieces;i++){if(t.ps[i]===1){idx=i;break}}
-        if(idx<0)idx=t.have;
-        t.ps[idx]=3;t.have++;
-        for(let k=0;k<2;k++){const m=RI(0,t.pieces-1);if(t.ps[m]===0)t.ps[m]=Math.random()<.5?1:2}}
-      if(t.have>=t.pieces){t.state="seeding";t.dl=0;
-        pushEvent("ok","ENGINE",`Completed "${t.name}" — all ${t.pieces} pieces verified`,t.id);
-        toast("ok","Download complete",`${t.name} · ${fmtBytes(t.size)} verified on disk.`);
-        structLib();}
-      if(Math.random()<.02&&t.peers.length<12)t.peers.push(...mkPeers(1));
-    }else if(t.state==="seeding"){
-      t.ul=clamp(t.ul+(Math.random()-.5)*.2*Math.max(t.ul,400*KiB), 60*KiB, 3*MiB);
-      t.dl=0; t.uploaded+=t.ul*.2;
-    }else{t.dl=0;t.ul=0}
-    if(t.state!=="paused"){t.peers.forEach(p=>{p.dl=clamp(p.dl+(Math.random()-.5)*40*KiB,0,900*KiB);p.ul=clamp(p.ul+(Math.random()-.5)*22*KiB,0,400*KiB)});
-      if(Math.random()<.01&&t.peers.length)  t.peers.splice(RI(0,t.peers.length-1),1);
-      if(Math.random()<.012&&t.peers.length<12)t.peers.push(...mkPeers(1));}
-    gd+=t.dl;gu+=t.ul;
-    t.dlH.push(t.dl);t.ulH.push(t.ul);if(t.dlH.length>HIST)t.dlH.shift(),t.ulH.shift();
-    t.trackers.forEach(tr=>{if(tr.next>0){tr.next-=.2;if(tr.next<=0){tr.next=RI(300,1500);tr.peers=RI(5,240)}}});
-  });
-  state.sUp+=gu*.2; state.sDown+=gd*.2;
-  state.dlH.push(gd);state.ulH.push(gu);if(state.dlH.length>HIST){state.dlH.shift();state.ulH.shift()}
-  if(Math.random()<.3){state.dht.nodes=clamp(state.dht.nodes+RI(-2,4),40,900);
-    const b=RI(0,159);state.dht.buckets[b]=clamp(state.dht.buckets[b]+(Math.random()<.6?1:-1),0,8);
-    if(Math.random()<.25)state.dht.found++;}
-  state.dhtH.push(state.dht.nodes);if(state.dhtH.length>HIST)state.dhtH.shift();
-  simEvents();
-  renderDynamic();
-}
-
-/* ═══ render: top / dash ════════════════════════════════════════════════ */
 function activeTs(){return state.torrents.filter(t=>t.state!=="paused")}
 function renderTop(){
   const gd=state.dlH[state.dlH.length-1],gu=state.ulH[state.ulH.length-1];
@@ -945,7 +1095,7 @@ function structLib(){
           <div class="up" style="margin-bottom:8px">download · last 24 s</div><canvas class="spark-lg cx-d"></canvas>
           <div class="up" style="margin:10px 0 8px">upload · last 24 s</div><canvas class="spark-lg cx-u"></canvas></div>
         <div class="facts">
-          <div class="fact"><div class="k">info hash</div><div class="v">${hashFor(t.id)}</div></div>
+          <div class="fact"><div class="k">info hash</div><div class="v">${t.id}</div></div>
           <div class="fact"><div class="k">save path</div><div class="v">${t.savePath}</div></div>
           <div class="fact"><div class="k">piece size</div><div class="v">256.00 KiB</div></div>
           <div class="fact"><div class="k">added</div><div class="v">${new Date(t.added).toLocaleString("en-GB",{hour12:false})}</div></div>
@@ -959,8 +1109,8 @@ function structLib(){
       if(e.target.closest(".t-name")){selectTorrent(t.id);setView("detail");return}
       t._open=!t._open;el.classList.toggle("open",t._open);});
     el.querySelector(".pp").onclick=e=>{e.stopPropagation();togglePause(t.id)};
-    el.querySelector(".fo").onclick=e=>{e.stopPropagation();toast("info","Opening Explorer",t.savePath+"\\"+t.files[0].name)};
-    el.querySelector(".rm").onclick=e=>{e.stopPropagation();removeTorrent(t.id)};
+    el.querySelector(".fo").onclick=e=>{e.stopPropagation();if(window.bridge)window.bridge.open_folder(t.id);toast("info","Opening Explorer",t.savePath)};
+    el.querySelector(".rm").onclick=e=>{e.stopPropagation();openRm(t.id)};
     el.querySelector(".od").onclick=e=>{e.stopPropagation();selectTorrent(t.id);setView("detail")};
     wrap.appendChild(el);
     rowRefs.set(t.id,{el,pb:el.querySelector(".pb"),pc:el.querySelector(".pc"),rd:el.querySelector(".rd"),ru:el.querySelector(".ru"),
@@ -988,7 +1138,7 @@ function updateLib(){
 }
 
 /* ═══ render: detail ════════════════════════════════════════════════════ */
-function selectTorrent(id){ state.selected=id; if(window.bridge) window.bridge.select_torrent(id); structLib(); }
+function selectTorrent(id){state.selected=id;structLib()}
 function renderDetailStruct(){
   const t=state.torrents.find(x=>x.id===state.selected);
   $("#detEmpty").style.display=t?"none":"flex";$("#detWrap").style.display=t?"block":"none";
@@ -997,7 +1147,7 @@ function renderDetailStruct(){
   $("#detPause").querySelector("span").textContent=t.state==="paused"?"Resume":"Pause";
   $("#detPause").querySelector("use").setAttribute("href",t.state==="paused"?"#i-play":"#i-pause");
   $("#kvGrid").innerHTML=[
-    ["info hash",`<span>${hashFor(t.id)}</span><button class="icon-btn cp" title="Copy"><svg class="ic sm"><use href="#i-copy"/></svg></button>`],
+    ["info hash",`<span>${t.id}</span><button class="icon-btn cp" title="Copy"><svg class="ic sm"><use href="#i-copy"/></svg></button>`],
     ["save path",t.savePath],["piece size","256.00 KiB"],["pieces",`${t.pieces} total · ${t.have} verified`],
     ["added",new Date(t.added).toLocaleString("en-GB",{hour12:false})],["trackers",`${t.trackers.length} configured`],
     ["session download",fmtBytes(t.downloaded)],["session upload",fmtBytes(t.uploaded)]
@@ -1040,12 +1190,13 @@ function drawPieces(t){
   const dpr=window.devicePixelRatio||1,H=rows*step-gap+4;
   cv.style.height=H+"px";cv.width=Math.round(wrapW*dpr);cv.height=Math.round(H*dpr);
   const x=cv.getContext("2d");x.setTransform(dpr,0,0,dpr,0,0);x.clearRect(0,0,wrapW,H);
-  const COL=THEME.pieces;let cnt=[0,0,0,0];
+  const COL=THEME.pieces;let cnt=[0,0,0,0];const now=performance.now();
   for(let i=0;i<t.pieces;i++){const s=t.ps[i];cnt[s]++;
-    x.fillStyle=COL[s];x.globalAlpha=s===3?.92:1;
+    x.fillStyle=COL[s];
+    x.globalAlpha=s===3?.92:s===2?.5+.5*Math.abs(Math.sin(now/260+i*.4)):s===1?.35+.55*Math.abs(Math.sin(now/620+i*.25)):1;
     x.beginPath();x.roundRect((i%cols)*step,Math.floor(i/cols)*step,cell,cell,2.5);x.fill()}
   x.globalAlpha=1;pieceLayout={cols,step,cell};
-  $("#lgMiss").textContent=cnt[0];$("#lgReq").textContent=cnt[1];$("#lgDl").textContent=cnt[2];$("#lgVer").textContent=cnt[3];
+  $("#pkMiss").textContent=cnt[0];$("#pkReq").textContent=cnt[1];$("#pkDl").textContent=cnt[2];$("#pkVer").textContent=cnt[3];
   $("#pieceMeta").textContent=`${t.pieces} pieces · 256.00 KiB each · ${fmtBytes(t.size)} total · ${(t.have/t.pieces*100).toFixed(1)}% verified`;
 }
 $("#pieceCanvas").addEventListener("mousemove",e=>{
@@ -1057,6 +1208,11 @@ $("#pieceCanvas").addEventListener("mousemove",e=>{
   const s=["missing","requested","downloading","verified"][t.ps[idx]];
   $("#pieceInfo").innerHTML=`Piece <b style="color:var(--txt)">${idx}</b> · <span style="color:${t.ps[idx]===3?"var(--em)":t.ps[idx]===0?"var(--fnt)":"var(--am)"}">${s}</span> · 256.00 KiB · held by ${t.ps[idx]===3?0:RI(1,6)} peer(s) · offset ${fmtBytes(idx*PSIZE)}`;
 });
+/* smooth 60 fps repaint of the piece map while its tab is open */
+let pieceRaf=0;
+function pieceLoop(){const t=state.torrents.find(x=>x.id===state.selected);if(t)drawPieces(t);pieceRaf=requestAnimationFrame(pieceLoop)}
+function pieceLoopOn(){if(!pieceRaf)pieceRaf=requestAnimationFrame(pieceLoop)}
+function pieceLoopOff(){if(pieceRaf){cancelAnimationFrame(pieceRaf);pieceRaf=0}}
 
 /* ═══ render: log ═══════════════════════════════════════════════════════ */
 function logRowHtml(ev){return`<div class="log-row ${ev.sev}"><span class="t">${ev.t}</span><span class="sv ${ev.sev}"></span><span class="src">${ev.src}</span><span class="msg">${ev.msg}</span></div>`}
@@ -1100,21 +1256,31 @@ function renderDht(){
 }
 
 /* ═══ actions ═══════════════════════════════════════════════════════════ */
-function togglePause(id){ if(window.bridge) window.bridge.toggle_torrent(id); return; const t=state.torrents.find(x=>x.id===id);if(!t)return;
-  if(t.state==="paused"){t.state=t.have>=t.pieces?"seeding":"downloading";pushEvent("ok","ENGINE",`Resumed "${t.name}"`,id);toast("info","Resumed",t.name)}
-  else{t._prev=t.state;t.state="paused";t.dl=0;t.ul=0;pushEvent("warn","ENGINE",`Paused "${t.name}"`,id);toast("warn","Paused",t.name)}
-  structLib();renderDetailStruct();}
-function removeTorrent(id){ if(window.bridge) window.bridge.remove_torrent(id); return; const t=state.torrents.find(x=>x.id===id);if(!t)return;
+function togglePause(id){ if(window.bridge) window.bridge.toggle_torrent(id); }
+function removeTorrent(id,delFiles){const t=state.torrents.find(x=>x.id===id);if(!t)return;
   state.torrents=state.torrents.filter(x=>x.id!==id);
   if(state.selected===id)state.selected=null;
-  pushEvent("warn","ENGINE",`Removed "${t.name}" from library (files kept on disk)`,null);
-  toast("warn","Torrent removed",`${t.name} — downloaded files were kept.`);
+  if(delFiles){pushEvent("err","DISK",`Deleted ${fmtBytes(t.downloaded)} from ${t.savePath} for "${t.name}"`,null);
+    toast("warn","Torrent removed",`${t.name} — files deleted from disk.`);}
+  else{pushEvent("warn","ENGINE",`Removed "${t.name}" from library (files kept on disk)`,null);
+    toast("warn","Torrent removed",`${t.name} — downloaded files were kept.`);}
   structLib();renderDetailStruct();}
-function addTorrent(name,size,files){
-  const t=mkTorrent(name,size,files,0,"downloading");t.peers=[];t.dl=0;
+let pendingRm=null;
+function openRm(id){const t=state.torrents.find(x=>x.id===id);if(!t)return;
+  pendingRm=id;
+  $("#rmName").textContent=`"${t.name}" · ${fmtBytes(t.size)} · ${t.pieces} pieces`;
+  $("#rmPath").textContent=`${t.savePath}\\${t.files[0].name} · ${fmtBytes(t.downloaded)} on disk`;
+  $("#rmFiles").checked=false;$("#rmOkLbl").textContent="Remove";
+  $("#rmModal").classList.add("on");}
+$("#rmFiles").onchange=e=>$("#rmOkLbl").textContent=e.target.checked?"Remove + delete files":"Remove";
+$("#rmCancel").onclick=()=>$("#rmModal").classList.remove("on");
+$("#rmModal").addEventListener("click",e=>{if(e.target.id==="rmModal")$("#rmModal").classList.remove("on")});
+$("#rmOk").onclick=()=>{const del=$("#rmFiles").checked;$("#rmModal").classList.remove("on");if(pendingRm)removeTorrent(pendingRm,del);pendingRm=null};
+function addTorrent(name,size,files,paused){
+  const t=mkTorrent(name,size,files,0,paused?"paused":"downloading");t.peers=[];t.dl=0;t.ul=0;
   state.torrents.unshift(t);
   pushEvent("ok","ENGINE",`Added "${name}" · ${t.pieces} pieces · metadata parsed`,t.id);
-  toast("ok","Torrent added",`${name} · contacting ${t.trackers.length} trackers + DHT.`);
+  toast("ok",paused?"Torrent added (paused)":"Torrent added",`${name} · ${paused?"stays paused until you resume it":`contacting ${t.trackers.length} trackers + DHT`}.`);
   structLib();setView("lib");}
 
 /* ═══ view / tab wiring ═════════════════════════════════════════════════ */
@@ -1127,6 +1293,7 @@ function setView(v){
   if(v==="log")renderLogFull();
   if(v==="dht")renderDht();
   if(v==="dash")renderDash();
+  if(v==="detail"&&state.tab==="pieces")pieceLoopOn();else pieceLoopOff();
   $("#content").scrollTop=0;
 }
 $$(".nav-item").forEach(b=>b.onclick=()=>setView(b.dataset.view));
@@ -1134,6 +1301,7 @@ $("#detTabs").addEventListener("click",e=>{const b=e.target.closest(".tab");if(!
   state.tab=b.dataset.tab;
   $$("#detTabs .tab").forEach(t=>t.classList.toggle("on",t===b));
   $$(".pane").forEach(p=>p.classList.toggle("on",p.dataset.pane===state.tab));
+  if(state.tab==="pieces")pieceLoopOn();else pieceLoopOff();
   renderDetailDyn();});
 $("#libFilter").addEventListener("input",e=>{state.filter=e.target.value;structLib()});
 $("#logChips").addEventListener("click",e=>{const b=e.target.closest(".fchip");if(!b)return;
@@ -1142,7 +1310,7 @@ $("#logSearch").addEventListener("input",e=>{state.logQ=e.target.value.toLowerCa
 $("#dashList").addEventListener("click",e=>{const m=e.target.closest("[data-open]");if(m){selectTorrent(+m.dataset.open);setView("detail")}});
 $("#detGoLib").onclick=()=>setView("lib");
 $("#detPause").onclick=()=>state.selected&&togglePause(state.selected);
-$("#detRemove").onclick=()=>state.selected&&removeTorrent(state.selected);
+$("#detRemove").onclick=()=>state.selected&&openRm(state.selected);
 function setTheme(n){
   THEME_NAME=n; THEME=THEMES[n]; EM=THEME.em; AM=THEME.am; EMF=THEME.emF; AMF=THEME.amF;
   document.documentElement.setAttribute("data-theme",n);
@@ -1155,37 +1323,150 @@ function setTheme(n){
 }
 $("#themeChip").onclick=()=>setTheme({dark:"light",light:"amoled",amoled:"dark"}[THEME_NAME]);
 $("#segTheme").addEventListener("click",e=>{const b=e.target.closest("button");if(b)setTheme(b.dataset.th)});
-$("#btnAdd").onclick=$("#dashAdd").onclick=$("#libAdd").onclick=()=>{$("#modal").classList.add("on")};
-$("#setBrowse").onclick=()=>{ if (window.bridge) window.bridge.browse_download_dir(); };
+$("#btnAdd").onclick=$("#dashAdd").onclick=$("#libAdd").onclick=()=>openAddModal();
+$("#setBrowse").onclick=()=>toast("info","Folder picker","Native QFileDialog opens here in the PySide6 build.");
 const limV=v=>v<=0?"unlimited":fmtRate(v/100*25*MiB);
 $("#setDlLim").oninput=e=>$("#setDlLimV").textContent=limV(+e.target.value);
 $("#setUlLim").oninput=e=>$("#setUlLimV").textContent=limV(+e.target.value);
 $("#setPeers").oninput=e=>$("#setPeersV").textContent=e.target.value;
 $("#setDir").oninput=e=>$("#footPath").textContent=e.target.value;
 
-/* modal */
-let mzMode="file",picked=null;
+/* window chrome: minimize / maximize / close + tray + exited overlay */
+function minimizeApp(txt){$("#trayTxt").textContent=txt;$("#trayChip").hidden=false;document.body.classList.add("minimized")}
+$("#trayChip").onclick=()=>{document.body.classList.remove("minimized");$("#trayChip").hidden=true};
+window.openExit = openExit;
+function openExit(){const n=activeTs().length;
+  $("#exitSub").textContent=n?`${n} transfer${n===1?"":"s"} still active — closing pauses them until the next launch.`:"No active transfers — safe to close.";
+  $("#exitModal").classList.add("on");}
+$("#exitNo").onclick=()=>$("#exitModal").classList.remove("on");
+$("#exitModal").addEventListener("click",e=>{if(e.target.id==="exitModal")$("#exitModal").classList.remove("on")});
+$("#exitTray").onclick=()=>{$("#exitModal").classList.remove("on");
+  minimizeApp(`Running in system tray · ↓ ${fmtRate(state.dlH[state.dlH.length-1])} — click to restore`);
+  toast("info","Minimized to tray","PeerStream keeps transferring in the background.");
+  if(window.bridge) window.bridge.minimize_tray();
+};
+$("#exitClose").onclick=()=>{$("#exitModal").classList.remove("on");clearInterval(tickTimer);pieceLoopOff();
+  $("#exitInfo").textContent=`Session state saved — ${state.torrents.length} torrent${state.torrents.length===1?"":"s"} will resume where they left off on next launch.`;
+  $("#exitOverlay").hidden=false;
+  if(window.bridge) window.bridge.exit_app();
+};
+$("#ovRelaunch").onclick=()=>{$("#exitOverlay").hidden=true;tickTimer = null;toast("ok","Engine resumed","StatePump re-linked at 5 Hz.");};
+
+/* modal — two-stage add flow: source → parsed metadata (file list / single file) */
+let mzMode="file", curMeta=null, skipDialog=false, parsing=false;
 $$("[data-mz]").forEach(b=>b.onclick=()=>{mzMode=b.dataset.mz;
   $$("[data-mz]").forEach(x=>x.classList.toggle("on",x===b));
   $("#mzFile").style.display=mzMode==="file"?"block":"none";
   $("#mzMag").style.display=mzMode==="mag"?"block":"none";});
 const dz=$("#dropzone");
-dz.onclick=()=>{ if(window.bridge) window.bridge.browse_torrent_file(); $("#modal").classList.remove("on"); };
+dz.onclick=()=>{ if(window.bridge) window.bridge.browse_torrent_file(); };
 dz.ondragover=e=>{e.preventDefault();dz.classList.add("over")};
 dz.ondragleave=()=>dz.classList.remove("over");
-dz.ondrop=e=>{e.preventDefault();dz.classList.add("over");picked=pick(POOL);$("#dzName").textContent=(e.dataTransfer.files[0]?.name)||picked[0].toLowerCase().replace(/\s+/g,".")+".torrent"};
-$("#mzCancel").onclick=()=>$("#modal").classList.remove("on");
-$("#modal").addEventListener("click",e=>{if(e.target.id==="modal")$("#modal").classList.remove("on")});
-document.addEventListener("keydown",e=>{if(e.key==="Escape")$("#modal").classList.remove("on")});
-$("#mzAdd").onclick=()=>{
-  $("#modal").classList.remove("on");
-  if(mzMode==="mag"){
-    const v=$("#magnetInput").value.trim();
-    if(window.bridge && v) window.bridge.add_torrent(v);
-    $("#magnetInput").value="";
-    return;
+dz.ondrop=e=>{
+  e.preventDefault();
+  dz.classList.remove("over");
+  if(e.dataTransfer.files.length > 0) {
+    const file = e.dataTransfer.files[0];
+    $("#dzName").textContent = file.name;
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+      const base64String = evt.target.result.split(',')[1];
+      if(window.bridge && window.bridge.parse_torrent_base64) {
+        parsing = true;
+        $("#mzNextSpin").hidden = false;
+        $("#mzNextLbl").textContent = "Parsing...";
+        $("#mzNext").disabled = true;
+        window.bridge.parse_torrent_base64(base64String);
+      }
+    };
+    reader.readAsDataURL(file);
   }
 };
+function openAddModal(){closeSteps();$("#modal").classList.add("on")}
+function closeSteps(){$("#mzStep1").hidden=false;$("#mzStep2").hidden=true;parsing=false;
+  $("#mzNextSpin").hidden=true;$("#mzNextLbl").textContent="Parse metadata";$("#mzNext").disabled=false}
+function showStep(el,back){[$("#mzStep1"),$("#mzStep2")].forEach(s=>s.hidden=s!==el);
+  el.classList.remove("step-anim","step-back");void el.offsetWidth;el.classList.add(back?"step-back":"step-anim")}
+$("#mzNext").onclick=()=>{
+  if(parsing)return;
+  const v = $("#magnetInput").value.trim();
+  if(!v) return;
+  parsing=true;$("#mzNext").disabled=true;$("#mzNextSpin").hidden=false;
+  $("#mzNextLbl").textContent="Fetching metadata from DHT…";
+  if(window.bridge) { window.bridge.parse_magnet(v); }
+};
+function openStep2(m){
+  curMeta=m;
+  const size=m.size, multi=m.files.length>1;
+  $("#mz2Name").textContent=m.name;
+  $("#mz2Meta").innerHTML=`<b>${fmtBytes(size)}</b><span class="sep"></span><b>${m.files.length}</b>&nbsp;file${m.files.length===1?"":"s"}<span class="sep"></span><b>${m.peers}</b>&nbsp;peers<span class="sep"></span><b>${m.seeds}</b>&nbsp;seeds<span class="sep"></span>${m.info_hash.slice(0,12)}…`;
+  $("#mz2Dir").value=$("#setDir").value || "C:\\Users\\ssake\\Downloads";
+  $("#mz2ListWrap").hidden=!multi;$("#mz2Single").hidden=multi;
+  $("#mz2Size").textContent=`Size: ${fmtBytes(size)}`;
+  if(multi){
+    $("#mz2List").innerHTML=m.files.map((f,i)=>`<label class="fl-row" style="animation-delay:${i*26}ms">
+      <span><input type="checkbox" checked data-i="${i}" style="position:absolute;opacity:0;width:0;height:0"><span class="chk"></span></span>
+      <span class="nm"><svg class="ic sm"><use href="#i-file"/></svg>${f[0]}</span><span class="sz">${fmtBytes(f[1])}</span></label>`).join("");
+    $("#mzAll").checked=true;updateSel();
+  } else {
+    $("#mz2FileName").value=m.files[0][0];
+  }
+  $("#mzStart").checked=true;$("#mz2AddLbl").textContent="Add torrent";
+  showStep($("#mzStep2"),false);
+}
+function updateSel(){const m=curMeta;if(!m)return;
+  const boxes=$$('#mz2List input[type="checkbox"]');
+  let k=0,sum=0;boxes.forEach(b=>{const on=b.checked;k+=on?1:0;sum+=on?m.files[+b.dataset.i][1]:0;
+    b.closest(".fl-row").classList.toggle("off",!on)});
+  const el=$("#mzSel");el.textContent=`${k} of ${m.files.length} selected · ${fmtBytes(sum)}`;
+  el.classList.remove("bump");void el.offsetWidth;el.classList.add("bump");
+  $("#mz2Size").textContent=`Size: ${fmtBytes(sum)} of ${fmtBytes(m.size)}`;}
+$("#mz2List").addEventListener("change",e=>{if(e.target.matches('input[type="checkbox"]')){
+  const all=$$('#mz2List input[type="checkbox"]');$("#mzAll").checked=all.every(b=>b.checked);updateSel()}});
+$("#mzAll").onchange=e=>{$$('#mz2List input[type="checkbox"]').forEach(b=>b.checked=e.target.checked);updateSel()};
+$("#mzStart").onchange=e=>$("#mz2AddLbl").textContent=e.target.checked?"Add torrent":"Add paused";
+$("#mz2Browse").onclick=()=>toast("info","Folder picker","Native QFileDialog opens here in the PySide6 build.");
+$("#mz2Back").onclick=()=>showStep($("#mzStep1"),true);
+$("#mz2Cancel").onclick=()=>{$("#modal").classList.remove("on");closeSteps()};
+$("#mz2Add").onclick=()=>{
+  const m=curMeta;if(!m)return;
+  let selNames = [];
+  if(m.files.length>1){
+    selNames=$$('#mz2List input[type="checkbox"]').filter(b=>b.checked).map(b=>m.files[+b.dataset.i][0]);
+    if(!selNames.length){toast("warn","Nothing selected","Tick at least one file to download.");return}
+  } else {
+    selNames = [$("#mz2FileName").value||m.files[0][0]];
+  }
+  
+  if (window.bridge) {
+    const config = {
+      info_hash: m.info_hash,
+      save_dir: $("#mz2Dir").value,
+      start: $("#mzStart").checked,
+      files: selNames
+    };
+    window.bridge.confirm_add_torrent(JSON.stringify(config));
+  }
+  
+  $("#modal").classList.remove("on");
+  closeSteps();
+  curMeta=null;
+  $("#dzName").textContent="Drop a .torrent here";
+  const dz=$("#dropzone");
+  if(dz) dz.classList.remove("over");
+  $("#magnetInput").value="";
+};
+function finishAdd(m,selNames,start,renamed){
+  const files=m.files.filter(f=>selNames.includes(f[0])).map(f=>[f[0],f[1]]);
+  if(renamed&&files.length===1)files[0][0]=selNames[0];
+  const size=files.reduce((a,f)=>a+f[1],0);
+  $("#modal").classList.remove("on");closeSteps();
+  skipDialog=$("#mzSkip").checked;
+  curMeta=null;$("#dzName").textContent="Drop a .torrent here";dz.classList.remove("over");$("#magnetInput").value="";
+  addTorrent(m.name,size,files,!start);}
+$("#mzCancel").onclick=()=>{$("#modal").classList.remove("on");closeSteps()};
+$("#modal").addEventListener("click",e=>{if(e.target.id==="modal"){$("#modal").classList.remove("on");closeSteps()}});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")["#modal","#rmModal","#exitModal"].forEach(id=>$(id).classList.remove("on"))});
 
 /* ═══ boot ══════════════════════════════════════════════════════════════ */
 function renderDynamic(){
@@ -1201,8 +1482,10 @@ setTheme(THEMES[_saved]?_saved:"dark");
 pushEvent("ok","ENGINE","Engine online — StatePump linked at 5 Hz, EventFeed streaming",null);
 pushEvent("info","DHT","Bootstrapped via router.bittorrent.com · 8 nodes seeded",null);
 setTimeout(()=>toast("ok","Engine online","StatePump @ 5 Hz · EventFeed batched · DHT bootstrapped."),700);
-// setInterval(tick,200);
+var tickTimer = null;
 window.addEventListener("resize",()=>renderDynamic());
 </script>
+
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 </body>
 </html>

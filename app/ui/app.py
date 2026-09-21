@@ -37,6 +37,8 @@ from app.core.application import Application
 from app.core.config import Config
 from app.services import AppState, Session
 from app.ui.bridge import EngineBridge
+from app.ui.ipc import IpcServer, send_magnet_to_primary
+from app.core.registry import register_magnet_protocol
 from app.ui.main_window import MainWindow
 from app.ui.theme import icons, palette_for
 from app.ui.theme.qss import build_stylesheet
@@ -185,12 +187,30 @@ def run_ui(
         A process exit code.
     """
     arguments = list(sys.argv if argv is None else argv)
+
+    # Check if we are being invoked with a magnet link
+    magnet_uri = next((arg for arg in arguments[1:] if arg.startswith("magnet:")), None)
+    if magnet_uri:
+        if send_magnet_to_primary(magnet_uri):
+            # Another instance is already running, and we forwarded the link.
+            return 0
     handle = build_ui(arguments, config_path=config_path)
     handle.bridge.start()
     # The DHT is started here, on the engine loop, before the first frame is
     # drawn: it needs a moment to fill its routing table, and a magnet link the
     # user pastes thirty seconds from now should find a network already there.
     handle.bridge.submit(handle.application.start())
+
+    # Register magnet protocol silently
+    register_magnet_protocol()
+
+    # Start IPC server
+    ipc_server = IpcServer(parent=handle.window)
+    def on_magnet_received(uri: str):
+        # We must submit this to the engine loop
+        handle.bridge.submit(handle.application.session.add_magnet(uri, directory=handle.application.config.storage.download_directory))
+    ipc_server.magnet_received.connect(on_magnet_received)
+    ipc_server.start()
     if show:
         handle.window.show()
 

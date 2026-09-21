@@ -5,7 +5,7 @@ a = Analysis(
     ['app/main.py'],
     pathex=[],
     binaries=[],
-    datas=[('packaging/PeerStream.ico', '.')],
+    datas=[('packaging/PeerStream.ico', '.'), ('app/ui/web', 'app/ui/web')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

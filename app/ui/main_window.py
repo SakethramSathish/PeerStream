@@ -14,6 +14,9 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebChannel import QWebChannel
 
+from PySide6.QtGui import QIcon, QAction
+from PySide6.QtWidgets import QSystemTrayIcon, QMenu
+
 from app.core.config import Config
 from app.ui.bridge import EngineBridge
 from app.ui.web_bridge import WebBridge
@@ -21,13 +24,6 @@ from app.ui.web_bridge import WebBridge
 logger = logging.getLogger(__name__)
 
 class MainWindow(QMainWindow):
-    """The application window containing the WebEngineView.
-
-    Args:
-        bridge: The Qt ↔ asyncio bridge.
-        config: The configuration.
-    """
-
     # Keep signals for app.py compatibility
     settings_applied = Signal(object)
 
@@ -36,10 +32,28 @@ class MainWindow(QMainWindow):
         self._bridge = bridge
         self._config = config
         self._save_config: Callable[[Config], object] | None = None
+        self._force_close = False
         
         self.resize(1360, 860)
         self.setMinimumSize(1024, 640)
         self.setWindowTitle("PeerStream")
+
+        # Setup System Tray
+        self.tray_icon = QSystemTrayIcon(self)
+        # Use a built-in icon or a fallback
+        self.tray_icon.setIcon(self.style().standardIcon(self.style().StandardPixmap.SP_ComputerIcon))
+        self.tray_icon.setToolTip("PeerStream")
+        
+        tray_menu = QMenu()
+        restore_action = QAction("Restore", self)
+        restore_action.triggered.connect(self.showNormal)
+        quit_action = QAction("Quit", self)
+        quit_action.triggered.connect(self.force_close)
+        
+        tray_menu.addAction(restore_action)
+        tray_menu.addAction(quit_action)
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.activated.connect(self._on_tray_activated)
 
         central = QWidget(self)
         self.setCentralWidget(central)
@@ -68,6 +82,24 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self._view)
 
+    def _on_tray_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self.showNormal()
+            self.activateWindow()
+
+    def closeEvent(self, event):
+        if not self._force_close:
+            event.ignore()
+            # Let the JS decide whether to exit completely or minimize to tray
+            self._view.page().runJavaScript("if(window.openExit) window.openExit(); else window.bridge.exit_app();")
+        else:
+            event.accept()
+
+    def force_close(self):
+        self._force_close = True
+        self.close()
+
     def set_config_saver(self, saver: Callable[[Config], object]) -> None:
         """Called by app.py to wire config saving."""
         self._save_config = saver
+

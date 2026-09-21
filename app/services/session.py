@@ -96,6 +96,8 @@ class Session:
         self._bus = event_bus or EventBus()
         self._owns_bus = event_bus is None
         self._services: dict[str, TorrentService] = {}
+        self._pending_magnets: dict[str, tuple[MagnetUri, str | None]] = {}
+        self._pending_magnets: dict[str, tuple[MagnetUri, str | None]] = {}
         self._dht: DhtNode | None = None
         self._peer_id = generate_peer_id()
         self._resolver = MagnetResolver(peer_id=self._peer_id, config=self._config)
@@ -128,6 +130,11 @@ class Session:
     def services(self) -> tuple[TorrentService, ...]:
         """Every torrent in the session, in the order they were added."""
         return tuple(self._services.values())
+
+    @property
+    def pending_magnets(self) -> dict[str, tuple[MagnetUri, str | None]]:
+        """Magnets currently resolving metadata, mapped by info-hash."""
+        return dict(self._pending_magnets)
 
     @property
     def engines(self) -> tuple[Engine, ...]:
@@ -232,30 +239,7 @@ class Session:
             MetadataError: No peer supplied metadata matching the info hash.
             ValueError: The torrent is already in the session.
         """
-        uri = parse_magnet(magnet) if isinstance(magnet, str) else magnet
-        hex_info_hash = uri.hex_info_hash
-        if hex_info_hash in self._services:
-            raise ValueError(f"torrent is already in this session: {hex_info_hash}")
-
-        self._emit(
-            EventType.DHT_QUERY,
-            f"resolving magnet for {uri.name}",
-            hex_info_hash,
-            {"trackers": len(uri.trackers), "peers": len(uri.peers)},
-        )
-        resolution = await self._resolver.resolve(uri, peers=peers)
-        self._emit(
-            EventType.TORRENT_ADDED,
-            f"metadata for {resolution.torrent.name} arrived from {resolution.metadata.address}",
-            hex_info_hash,
-            {
-                "bytes": resolution.metadata.size,
-                "peers": len(resolution.peers),
-                "sources": ",".join(resolution.sources),
-                "private": resolution.torrent.private,
-                "elapsed": round(resolution.elapsed, 3),
-            },
-        )
+        resolution = await self.resolve_magnet_only(magnet, peers=peers)
         engine = await self.add_torrent(
             resolution.torrent,
             start=start,
@@ -268,6 +252,52 @@ class Session:
             # only swarm we know of, and a magnet has no tracker to ask instead.
             engine.add_peers(list(resolution.peers), source="magnet")
         return engine, resolution
+
+    async def resolve_magnet_only(
+        self,
+        magnet: MagnetUri | str,
+        *,
+        peers: Sequence[PeerAddress] = (),
+    ) -> MagnetResolution:
+        """Resolve a magnet link without adding it to the engine.
+
+        Returns:
+            The MagnetResolution containing the parsed Torrent and discovered peers.
+        """
+        uri = parse_magnet(magnet) if isinstance(magnet, str) else magnet
+        hex_info_hash = uri.hex_info_hash
+        if hex_info_hash in self._services:
+            raise ValueError(f"torrent is already in this session: {hex_info_hash}")
+
+        self._emit(
+            EventType.DHT_QUERY,
+            f"resolving magnet for {uri.name}",
+            hex_info_hash,
+            {"trackers": len(uri.trackers), "peers": len(uri.peers)},
+        )
+        self._pending_magnets[hex_info_hash] = (uri, None)
+        try:
+            resolution = await self._resolver.resolve(uri, peers=peers)
+        except Exception as e:
+            self._pending_magnets[hex_info_hash] = (uri, str(e))
+            raise
+
+        if hex_info_hash not in self._pending_magnets:
+            raise ValueError(f"torrent {hex_info_hash} was removed during resolution")
+        self._pending_magnets.pop(hex_info_hash, None)
+        self._emit(
+            EventType.TORRENT_ADDED,
+            f"metadata for {resolution.torrent.name} arrived from {resolution.metadata.address}",
+            hex_info_hash,
+            {
+                "bytes": resolution.metadata.size,
+                "peers": len(resolution.peers),
+                "sources": ",".join(resolution.sources),
+                "private": resolution.torrent.private,
+                "elapsed": round(resolution.elapsed, 3),
+            },
+        )
+        return resolution
 
     # -------------------------------------------------------------------- dht
 
@@ -405,7 +435,11 @@ class Session:
         self, hex_info_hash: str, *, delete_data: bool = False
     ) -> TorrentService | None:
         """Remove a torrent, stopping it first. Returns what was removed."""
-        service = self._services.pop(hex_info_hash.lower(), None)
+        info_hash = hex_info_hash.lower()
+        if info_hash in self._pending_magnets:
+            self._pending_magnets.pop(info_hash, None)
+            return None
+        service = self._services.pop(info_hash, None)
         if service is None:
             return None
         self._services.pop(service.hex_info_hash, None)

@@ -54,11 +54,11 @@ Fetcher = Callable[..., Awaitable[MetadataResult]]
 Announcer = Callable[[str, bytes], Awaitable[Sequence[PeerAddress]]]
 """A tracker announce: a URL and an info hash in, peers out."""
 
-MAX_TRACKERS: int = 3
+MAX_TRACKERS: int = 10
 """How many of a magnet's trackers to ask.
 
-A link can carry a dozen, most of them dead. Three is enough to find a live one
-and few enough that resolving a magnet is not a small denial of service.
+A link can carry a dozen, most of them dead. Ten gives a good chance to find a live one
+without overwhelming the network.
 """
 
 MAX_PEERS: int = 60
@@ -162,7 +162,7 @@ class MagnetResolver:
         magnet: MagnetUri,
         *,
         peers: Sequence[PeerAddress] | Sequence[tuple[str, int]] = (),
-        attempts: int = 8,
+        attempts: int = 40,
         metadata_timeout: float = 20.0,
     ) -> MagnetResolution:
         """Turn ``magnet`` into a torrent.
@@ -277,16 +277,27 @@ class MagnetResolver:
         """Announce to a few of the magnet's trackers and collect their peers."""
         found = _Found("tracker")
         urls = list(magnet.trackers)[:MAX_TRACKERS]
-        for url in urls:
+        if not urls:
+            return found
+
+        import asyncio
+
+        async def fetch(url: str):
             try:
                 peers = await self._announce_to(url, magnet.info_hash)
-            except (TrackerError, OSError, TimeoutError) as exc:
+                if peers:
+                    found.peers.extend(peers)
+                    logger.debug("magnet tracker %s returned %d peers", url, len(peers))
+            except Exception as exc:
                 found.error = f"{url}: {exc}"
                 logger.debug("magnet tracker %s failed: %s", url, exc)
-                continue
-            if peers:
-                found.peers.extend(peers)
-                logger.debug("magnet tracker %s returned %d peers", url, len(peers))
+
+        tasks = [asyncio.create_task(fetch(url)) for url in urls]
+        # Wait just shy of the outer timeout so we don't lose all results if one tracker hangs
+        done, pending = await asyncio.wait(tasks, timeout=max(0.1, self.timeout - 2.0))
+        for p in pending:
+            p.cancel()
+
         return found
 
     async def _announce_to(self, url: str, info_hash: bytes) -> tuple[PeerAddress, ...]:
