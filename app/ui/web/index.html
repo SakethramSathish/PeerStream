@@ -862,6 +862,9 @@ document.addEventListener("DOMContentLoaded", () => {
                               toast(e.sev, e.src, e.msg);
                           }
                       }
+                      if (parsing && e.msg.includes("Magnet resolution failed")) {
+                          closeSteps();
+                      }
                   }
                 }
             });
@@ -1257,19 +1260,16 @@ function renderDht(){
 
 /* ═══ actions ═══════════════════════════════════════════════════════════ */
 function togglePause(id){ if(window.bridge) window.bridge.toggle_torrent(id); }
-function removeTorrent(id,delFiles){const t=state.torrents.find(x=>x.id===id);if(!t)return;
-  state.torrents=state.torrents.filter(x=>x.id!==id);
-  if(state.selected===id)state.selected=null;
-  if(delFiles){pushEvent("err","DISK",`Deleted ${fmtBytes(t.downloaded)} from ${t.savePath} for "${t.name}"`,null);
-    toast("warn","Torrent removed",`${t.name} — files deleted from disk.`);}
-  else{pushEvent("warn","ENGINE",`Removed "${t.name}" from library (files kept on disk)`,null);
-    toast("warn","Torrent removed",`${t.name} — downloaded files were kept.`);}
-  structLib();renderDetailStruct();}
+function removeTorrent(id,delFiles){
+  if(window.bridge) window.bridge.remove_torrent(id, delFiles);
+  $("#rmModal").classList.remove("on");
+}
 let pendingRm=null;
 function openRm(id){const t=state.torrents.find(x=>x.id===id);if(!t)return;
   pendingRm=id;
   $("#rmName").textContent=`"${t.name}" · ${fmtBytes(t.size)} · ${t.pieces} pieces`;
-  $("#rmPath").textContent=`${t.savePath}\\${t.files[0].name} · ${fmtBytes(t.downloaded)} on disk`;
+  const fileName = (t.files && t.files.length > 0) ? (t.files[0].name || t.files[0][0] || t.name) : t.name;
+  $("#rmPath").textContent=`${t.savePath}\\${fileName} · ${fmtBytes(t.downloaded)} on disk`;
   $("#rmFiles").checked=false;$("#rmOkLbl").textContent="Remove";
   $("#rmModal").classList.add("on");}
 $("#rmFiles").onchange=e=>$("#rmOkLbl").textContent=e.target.checked?"Remove + delete files":"Remove";

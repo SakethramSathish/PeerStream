@@ -143,8 +143,12 @@ class WebBridge(QObject):
             
             # DHT nodes
             dht_nodes = 0
-            # Session does not expose dht directly, but we can check the config or just assume 0 for now
-            # since DHT status can be extracted from events if needed.
+            dht_buckets = []
+            dht = getattr(self._bridge.session, '_dht', None)
+            if dht and dht.table:
+                dht_nodes = dht.table.size
+                dht_buckets = [len(b) for b in dht.table._buckets]
+                dht_buckets += [0] * (160 - len(dht_buckets))
             
             s = {
                 "sDown": snapshot.totals.downloaded_bytes,
@@ -152,7 +156,7 @@ class WebBridge(QObject):
                 "dl": snapshot.totals.download_rate,
                 "ul": snapshot.totals.upload_rate,
                 "torrents": torrents,
-                "dht": {"nodes": dht_nodes},
+                "dht": {"nodes": dht_nodes, "buckets": dht_buckets},
                 "globalPeers": global_peers
             }
             self.stateChanged.emit(json.dumps(s))
